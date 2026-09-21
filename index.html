@@ -81,7 +81,7 @@
         <!-- ========================================== -->
         <div id="page-preview" class="flex flex-col h-full items-center justify-center relative w-full">
             
-            <!-- Video Container (Full size relative to area) -->
+            <!-- Video Container -->
             <div class="relative w-full max-w-5xl aspect-[4/3] bg-black rounded-2xl overflow-hidden shadow-2xl flex items-center justify-center">
                 <div class="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 z-30 shadow-lg animate-pulse">
                     <div class="w-2 h-2 rounded-full bg-white"></div> LIVE PREVIEW
@@ -97,7 +97,6 @@
                 <i class="fa-solid fa-camera"></i> AMBIL FOTO
             </button>
         </div>
-
 
         <!-- ========================================== -->
         <!-- HALAMAN 2: RESULT & PILIH FRAME -->
@@ -124,7 +123,6 @@
                 
                 <!-- Daftar Frame (Scrollable) -->
                 <div id="frame-gallery" class="flex-1 overflow-y-auto frame-scroll grid grid-cols-2 gap-3 pr-2 mb-6 content-start">
-                    <!-- Thumbnail frame akan di-generate JS di sini -->
                     <div class="col-span-2 text-center py-10 text-gray-400 text-sm italic" id="empty-frame-msg">
                         Belum ada frame.<br>Minta operator mengunggah frame.
                     </div>
@@ -145,18 +143,16 @@
     </main>
 
     <script>
-        // DOM Elements - Pages
+        // DOM Elements
         const pagePreview = document.getElementById('page-preview');
         const pageResult = document.getElementById('page-result');
         
-        // DOM Elements - Camera
         const video = document.getElementById('camera-video');
         const cameraSelect = document.getElementById('camera-select');
         const btnShutter = document.getElementById('btn-shutter');
         const countdownText = document.getElementById('countdown-text');
         const flashEffect = document.getElementById('flash-effect');
         
-        // DOM Elements - Result & Frames
         const frameUpload = document.getElementById('frame-upload');
         const frameCountInfo = document.getElementById('frame-count-info');
         const frameGallery = document.getElementById('frame-gallery');
@@ -168,71 +164,67 @@
         const btnSave = document.getElementById('btn-save');
         const btnRetake = document.getElementById('btn-retake');
 
-        // State Variables
+        // State Variables (TERMASUK imageCapture UNTUK SENSOR HARDWARE)
         let currentStream = null;
-        let loadedFrames = []; // Menyimpan data URL frame yang diupload operator
-        let currentRawPhotoData = null; // Menyimpan base64 foto polos
-        let selectedFrameIndex = null; // Index frame yang sedang diklik user
+        let loadedFrames = [];
+        let currentRawPhotoData = null;
+        let selectedFrameIndex = null;
+        let imageCapture = null; 
 
-// ==========================================
-// 1. SETUP KAMERA (DENGAN PEMAKSAAN RESOLUSI)
-// ==========================================
-async function initCamera(deviceId = null) {
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-    }
-
-    // Strategi baru: Kita minta 1080p (FHD). 
-    // Jika tidak bisa, browser akan mencari resolusi 16:9 terdekat (misal 720p).
-    const videoConstraints = {
-        width: { min: 1280, ideal: 1920, max: 3840 },
-        height: { min: 720, ideal: 1080, max: 2160 },
-        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' })
-    };
-
-    const constraints = { 
-        video: videoConstraints, 
-        audio: false 
-    };
-
-    try {
-        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = currentStream;
-        
-        if (!deviceId) await populateCameraList();
-
-        // Cek resolusi asli yang berhasil didapat
-        setTimeout(() => {
-            const actualWidth = video.videoWidth;
-            const actualHeight = video.videoHeight;
-            console.log(`📸 Resolusi Hardware Aktif: ${actualWidth} x ${actualHeight}`);
-            
-            if (actualWidth === 640) {
-                alert("Peringatan: Kamera Anda mengunci di resolusi 640x480. Ini mungkin limitasi perangkat keras (hardware) kamera atau aplikasi virtual camera yang digunakan.");
+        // ==========================================
+        // 1. SETUP KAMERA (MENDUKUNG HARDWARE SENSOR API)
+        // ==========================================
+        async function initCamera(deviceId = null) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
-        }, 1000);
 
-    } catch (err) {
-        // Jika gagal karena parameter "min" tidak disanggupi kamera, 
-        // kita lakukan fallback (cadangan) tanpa batasan minimum.
-        console.warn("Kamera tidak mendukung HD 720p/1080p, mencoba resolusi dasar...");
-        fallbackCamera(deviceId);
-    }
-}
+            // Meminta 1080p sebagai dasar (jika didukung)
+            const videoConstraints = {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' })
+            };
 
-// Fungsi cadangan jika kamera menolak resolusi tinggi
-async function fallbackCamera(deviceId) {
-    const fallbackConstraints = {
-        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' },
-        audio: false
-    };
-    try {
-        currentStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-        video.srcObject = currentStream;
-    } catch (err) {
-        alert("Kamera benar-benar tidak bisa diakses: " + err.message);
-    }
-}
+            const constraints = { 
+                video: videoConstraints, 
+                audio: false 
+            };
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+                
+                // Inisialisasi API Kamera Profesional
+                const track = currentStream.getVideoTracks()[0];
+                if ('ImageCapture' in window) {
+                    imageCapture = new ImageCapture(track);
+                    console.log("✅ ImageCapture API aktif. Siap untuk foto resolusi tinggi.");
+                } else {
+                    console.warn("⚠️ Browser tidak mendukung ImageCapture. Akan kembali menggunakan Canvas.");
+                    imageCapture = null;
+                }
+
+                if (!deviceId) await populateCameraList();
+
+            } catch (err) {
+                console.warn("Kamera menolak batas resolusi, mencoba fallback...", err);
+                fallbackCamera(deviceId);
+            }
+        }
+
+        async function fallbackCamera(deviceId) {
+            const fallbackConstraints = {
+                video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' },
+                audio: false
+            };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                video.srcObject = currentStream;
+            } catch (err) {
+                alert("Kamera benar-benar tidak bisa diakses: " + err.message);
+            }
+        }
 
         async function populateCameraList() {
             try {
@@ -251,7 +243,7 @@ async function fallbackCamera(deviceId) {
         cameraSelect.addEventListener('change', (e) => initCamera(e.target.value));
 
         // ==========================================
-        // 2. OPERATOR: UPLOAD FRAME (BISA MULTIPLE)
+        // 2. OPERATOR: UPLOAD FRAME 
         // ==========================================
         frameUpload.addEventListener('change', (e) => {
             const files = e.target.files;
@@ -265,13 +257,11 @@ async function fallbackCamera(deviceId) {
                     const src = event.target.result;
                     loadedFrames.push(src);
                     
-                    // Buat elemen thumbnail untuk sidebar Result
                     const thumbIdx = loadedFrames.length - 1;
                     const imgEl = document.createElement('img');
                     imgEl.src = src;
                     imgEl.className = 'w-full aspect-[4/3] object-cover bg-gray-100 rounded-lg cursor-pointer border-2 border-transparent hover:border-indigo-300 transition-all frame-thumb shadow-sm';
                     
-                    // Event ketika frame dipilih oleh user
                     imgEl.addEventListener('click', () => applyFrame(thumbIdx, imgEl));
                     
                     frameGallery.appendChild(imgEl);
@@ -279,28 +269,22 @@ async function fallbackCamera(deviceId) {
                 };
                 reader.readAsDataURL(file);
             });
-            // Reset input agar bisa upload file yang sama lagi jika perlu
             e.target.value = ''; 
         });
 
         // ==========================================
-        // 3. FUNGSI PILIH FRAME DI HALAMAN RESULT
+        // 3. FUNGSI PILIH FRAME
         // ==========================================
         function applyFrame(index, imgElement) {
             selectedFrameIndex = index;
-            
-            // Hapus outline active dari semua thumbnail
             document.querySelectorAll('.frame-thumb').forEach(el => el.classList.remove('active'));
-            // Tambahkan outline active ke yang diklik
             imgElement.classList.add('active');
-
-            // Tampilkan overlay di atas raw photo
             activeFrameOverlay.src = loadedFrames[index];
             activeFrameOverlay.classList.remove('hidden');
         }
 
         // ==========================================
-        // 4. CAPTURE FOTO (Jepret Polos)
+        // 4. CAPTURE FOTO (MENGGUNAKAN SENSOR JIKA BISA)
         // ==========================================
         btnShutter.addEventListener('click', () => {
             btnShutter.disabled = true;
@@ -308,7 +292,7 @@ async function fallbackCamera(deviceId) {
             countdownText.innerText = count;
             countdownText.classList.add('active');
 
-            const interval = setInterval(() => {
+            const interval = setInterval(async () => {
                 count--;
                 if (count > 0) {
                     countdownText.innerText = count;
@@ -320,21 +304,31 @@ async function fallbackCamera(deviceId) {
                     flashEffect.classList.add('active');
                     setTimeout(() => flashEffect.classList.remove('active'), 150);
 
-                    // Ambil Raw Photo via Canvas
-                    const canvas = document.createElement('canvas');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
-                    currentRawPhotoData = canvas.toDataURL('image/jpeg', 0.95);
-                    rawPhotoImg.src = currentRawPhotoData;
+                    // PROSES PENGAMBILAN GAMBAR BERESOLUSI TINGGI
+                    try {
+                        if (imageCapture) {
+                            // Pemicu sensor hardware murni (Bisa memakan beberapa MB)
+                            const blob = await imageCapture.takePhoto();
+                            currentRawPhotoData = URL.createObjectURL(blob);
+                        } else {
+                            // Fallback jika browser lawas (Gunakan PNG lossless)
+                            const canvas = document.createElement('canvas');
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            currentRawPhotoData = canvas.toDataURL('image/png'); 
+                        }
+                        rawPhotoImg.src = currentRawPhotoData;
+                    } catch (error) {
+                        console.error("Gagal mengambil foto HD:", error);
+                    }
 
                     // Pindah Halaman
                     pagePreview.classList.add('hidden');
                     pageResult.classList.remove('hidden');
                     
-                    // Reset Frame Selection jika user belum pilih
+                    // Reset UI Frame
                     activeFrameOverlay.classList.add('hidden');
                     document.querySelectorAll('.frame-thumb').forEach(el => el.classList.remove('active'));
                     selectedFrameIndex = null;
@@ -353,55 +347,50 @@ async function fallbackCamera(deviceId) {
         });
 
         // ==========================================
-        // 6. SIMPAN (MERGE RAW PHOTO + FRAME SAAT DOWNLOAD)
+        // 6. SIMPAN (MERGE RAW PHOTO + FRAME KE PNG)
         // ==========================================
         btnSave.addEventListener('click', () => {
             btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan...';
             
-            // Buat HD virtual canvas
             const canvas = document.createElement('canvas');
-            // Gunakan natural width dari raw photo untuk menjaga kualitas
             canvas.width = rawPhotoImg.naturalWidth; 
             canvas.height = rawPhotoImg.naturalHeight;
             const ctx = canvas.getContext('2d');
 
-            // 1. Gambar Raw Photo
             ctx.drawImage(rawPhotoImg, 0, 0, canvas.width, canvas.height);
 
-            // 2. Gambar Frame (Jika ada yang dipilih)
             if (selectedFrameIndex !== null) {
                 const frameImgObj = new Image();
                 frameImgObj.src = loadedFrames[selectedFrameIndex];
                 
-                // Pastikan gambar frame sudah ke-load memori sblm di-draw
                 frameImgObj.onload = () => {
                     ctx.drawImage(frameImgObj, 0, 0, canvas.width, canvas.height);
                     triggerDownload(canvas);
                 };
             } else {
-                // Jika user tidak milih frame sama sekali, langsung download polos
                 triggerDownload(canvas);
             }
         });
 
         function triggerDownload(canvas) {
-            const finalData = canvas.toDataURL('image/jpeg', 0.95);
+            // EKSPOR KE PNG AGAR RESOLUSI DAN KUALITAS TERJAGA PENUH
+            const finalData = canvas.toDataURL('image/png');
             const a = document.createElement('a');
             a.href = finalData;
             
             const now = new Date();
             const pad = n => n.toString().padStart(2, '0');
-            a.download = `LENSY_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
+            // Ekstensi diubah menjadi .png
+            a.download = `LENSY_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.png`;
             
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
 
-            // Kembalikan tombol
             btnSave.innerHTML = '<i class="fa-solid fa-download"></i> Simpan Foto';
         }
 
-        // Mulai kamera saat pertama buka
+        // Mulai
         initCamera();
     </script>
 </body>
